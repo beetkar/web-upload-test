@@ -81,8 +81,8 @@
     const qs = new URLSearchParams(location.search);
     const LS_URL = localStorage.getItem('SUPABASE_URL');
     const LS_ANON = localStorage.getItem('SUPABASE_ANON_KEY');
-    const SUPABASE_URL = qs.get('url') || LS_URL || 'https://YOUR_PROJECT.supabase.co';
-    const SUPABASE_ANON_KEY = qs.get('anon') || LS_ANON || 'YOUR_ANON_KEY';
+    const SUPABASE_URL = qs.get('url') || LS_URL || 'https://xdfxyokrkvlslfevwelx.supabase.co';
+    const SUPABASE_ANON_KEY = qs.get('anon') || LS_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkZnh5b2tya3Zsc2xmZXZ3ZWx4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg4MDMyNDIsImV4cCI6MjA3NDM3OTI0Mn0.i54gUByR54eED2SBnOWIZaXWmYyl37VVgzCR-TBrA50';
 
     document.getElementById('url').value = SUPABASE_URL;
     document.getElementById('anon').value = SUPABASE_ANON_KEY;
