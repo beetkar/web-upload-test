@@ -1,33 +1,30 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>ESP Sensor Dashboard</title>
+  <title>ESP Live Sensor Dashboard</title>
   <style>
-    :root { --pad: 16px; }
-    * { box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: var(--pad); background:#f7f7fb; }
-    header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; }
-    h2 { margin: 0 0 6px 0; font-weight: 700; }
-    #status { font-size: 14px; opacity: .7; }
-    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .card { background: white; border-radius: 14px; padding: 14px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
-    .card h3 { margin: 0 0 8px 0; font-size: 16px; }
-    canvas { width: 100%; height: 300px; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; }
-    th { background: #fafafa; position: sticky; top: 0; z-index: 1; }
-    .table-wrap { max-height: 360px; overflow: auto; }
-    footer { margin-top: 14px; color: #666; font-size: 12px; }
-    code { background: #f0f0f4; padding: 2px 6px; border-radius: 6px; }
-    @media (max-width: 900px) {
-      .grid { grid-template-columns: 1fr; }
-      canvas { height: 240px; }
-    }
-    .notice { background:#fff3cd; border:1px solid #ffe69c; color:#664d03; padding:8px 12px; border-radius:8px; margin-bottom:12px; }
+    :root { --pad:16px; }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;padding:var(--pad);background:#f7f7fb}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    h2{margin:0 0 6px 0;font-weight:700}
+    #status{font-size:14px;opacity:.7}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .card{background:#fff;border-radius:14px;padding:14px;box-shadow:0 2px 12px rgba(0,0,0,.06)}
+    .card h3{margin:0 0 8px 0;font-size:16px}
+    canvas{width:100%;height:300px}
+    .table-wrap{max-height:360px;overflow:auto}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{padding:8px 10px;border-bottom:1px solid #eee;text-align:left}
+    th{background:#fafafa;position:sticky;top:0;z-index:1}
+    footer{margin-top:14px;color:#666;font-size:12px}
+    code{background:#f0f0f4;padding:2px 6px;border-radius:6px}
+    @media(max-width:900px){.grid{grid-template-columns:1fr} canvas{height:240px}}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <header>
@@ -37,14 +34,20 @@
     </div>
   </header>
 
-  <div class="notice">
-    Set <code>window.BACKEND_URL</code> below to your backend (e.g., <code>"https://bright-poets-add.loca.lt"</code>).
+  <div class="card" style="margin-bottom:12px">
+    <strong>Config</strong>
+    <div style="font-size:13px;color:#555;margin-top:6px">
+      Set your Supabase values below (or define them inline in code).
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <input id="url" placeholder="SUPABASE_URL" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:8px">
+      <input id="anon" placeholder="SUPABASE_ANON_KEY" style="flex:2;padding:8px;border:1px solid #ddd;border-radius:8px">
+      <button id="save" style="padding:8px 12px;border:0;border-radius:8px;background:#111;color:#fff">Save</button>
+    </div>
+    <div style="font-size:12px;color:#777;margin-top:6px">
+      Tip: after saving once, values persist in <code>localStorage</code>.
+    </div>
   </div>
-
-  <script>
-    window.BACKEND_URL = "https://bright-poets-add.loca.lt";
-  </script>
-
 
   <div class="grid">
     <div class="card">
@@ -55,7 +58,7 @@
       <h3>Humidity (%)</h3>
       <canvas id="humChart"></canvas>
     </div>
-    <div class="card" style="grid-column: 1 / -1;">
+    <div class="card" style="grid-column:1/-1">
       <h3>Recent Data</h3>
       <div class="table-wrap">
         <table id="dataTable">
@@ -69,85 +72,69 @@
   </div>
 
   <footer>
-    Backend endpoints expected:
-    <ul>
-      <li><code>GET {BACKEND_URL}/events</code> (SSE stream)</li>
-      <li><code>GET {BACKEND_URL}/api/history?limit=200</code> (initial history)</li>
-      <li><code>POST {BACKEND_URL}/data</code> (ESP posts JSON)</li>
-    </ul>
+    ESP posts to <code>/.netlify/functions/ingest</code> with header <code>x-api-key</code>.<br>
+    This page reads directly from Supabase (history + realtime).
   </footer>
 
   <script>
-    const maxPoints = 240;
-    const labels = [];
-    const tData = [];
-    const hData = [];
+    // ---- Config: fetch from localStorage or URL query once, then persist ----
+    const qs = new URLSearchParams(location.search);
+    const LS_URL = localStorage.getItem('SUPABASE_URL');
+    const LS_ANON = localStorage.getItem('SUPABASE_ANON_KEY');
+    const SUPABASE_URL = qs.get('url') || LS_URL || 'https://YOUR_PROJECT.supabase.co';
+    const SUPABASE_ANON_KEY = qs.get('anon') || LS_ANON || 'YOUR_ANON_KEY';
 
-    const tempCtx = document.getElementById('tempChart').getContext('2d');
-    const humCtx  = document.getElementById('humChart').getContext('2d');
+    document.getElementById('url').value = SUPABASE_URL;
+    document.getElementById('anon').value = SUPABASE_ANON_KEY;
+    document.getElementById('save').onclick = () => {
+      localStorage.setItem('SUPABASE_URL', document.getElementById('url').value);
+      localStorage.setItem('SUPABASE_ANON_KEY', document.getElementById('anon').value);
+      location.reload();
+    };
 
-    const tempChart = new Chart(tempCtx, {
-      type: 'line',
-      data: { labels, datasets: [{ label: 'Temperature', data: tData, tension: 0.25, pointRadius: 0 }] },
-      options: { animation: false, responsive: true, scales: { y: { beginAtZero: false } } }
+    const supabase = supabaseLib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const maxPoints = 240; const labels = []; const tData = []; const hData = [];
+    const tempChart = new Chart(document.getElementById('tempChart').getContext('2d'), {
+      type:'line', data:{labels,datasets:[{label:'Temperature',data:tData,tension:.25,pointRadius:0}]},
+      options:{animation:false,responsive:true,scales:{y:{beginAtZero:false}}}
     });
-    const humChart = new Chart(humCtx, {
-      type: 'line',
-      data: { labels, datasets: [{ label: 'Humidity', data: hData, tension: 0.25, pointRadius: 0 }] },
-      options: { animation: false, responsive: true, scales: { y: { beginAtZero: true, suggestedMax: 100 } } }
+    const humChart = new Chart(document.getElementById('humChart').getContext('2d'), {
+      type:'line', data:{labels,datasets:[{label:'Humidity',data:hData,tension:.25,pointRadius:0}]},
+      options:{animation:false,responsive:true,scales:{y:{beginAtZero:true,suggestedMax:100}}}
     });
 
     const tbody = document.querySelector('#dataTable tbody');
-
-    function addRow(obj) {
+    function addRow(r){
       const tr = document.createElement('tr');
-      const t = new Date(obj.received_at || obj.ts_ms || Date.now()).toLocaleTimeString();
-      tr.innerHTML = `<td>${t}</td><td>${obj.device_id||''}</td><td>${Number(obj.temperature).toFixed(2)}</td><td>${Number(obj.humidity||0).toFixed(2)}</td>`;
-      tbody.prepend(tr);
-      while (tbody.rows.length > 200) tbody.deleteRow(-1);
+      const t = new Date(r.received_at || r.ts_ms || Date.now()).toLocaleTimeString();
+      tr.innerHTML = `<td>${t}</td><td>${r.device_id||''}</td><td>${Number(r.temperature).toFixed(2)}</td><td>${Number(r.humidity||0).toFixed(2)}</td>`;
+      tbody.prepend(tr); while (tbody.rows.length>200) tbody.deleteRow(-1);
     }
-
-    function pushPoint(ts, t, h) {
+    function pushPoint(ts,t,h){
       labels.push(new Date(ts).toLocaleTimeString());
-      tData.push(Number(t));
-      hData.push(Number(h));
-      if (labels.length > maxPoints) { labels.shift(); tData.shift(); hData.shift(); }
-      tempChart.update();
-      humChart.update();
+      tData.push(Number(t)); hData.push(Number(h));
+      if(labels.length>maxPoints){labels.shift(); tData.shift(); hData.shift();}
+      tempChart.update(); humChart.update();
     }
 
-    async function loadInitial() {
-      try {
-        const r = await fetch(`${window.BACKEND_URL}/api/history?limit=200`);
-        const arr = await r.json();
-        arr.forEach(h => {
-          pushPoint(h.received_at || h.ts_ms, h.temperature, h.humidity);
-          addRow(h);
-        });
-      } catch (e) {
-        console.warn("history fetch failed", e);
-      }
+    async function loadInitial(){
+      const { data, error } = await supabase
+        .from('readings')
+        .select('*')
+        .order('id', { ascending: false })
+        .limit(200);
+      if (error) { console.warn(error); return; }
+      data.reverse().forEach(r => { pushPoint(r.received_at||r.ts_ms,r.temperature,r.humidity); addRow(r); });
     }
-
-    function connectSSE() {
-      const es = new EventSource(`${window.BACKEND_URL}/events`);
-      es.onopen = () => document.getElementById('status').textContent = 'Live stream connected.';
-      es.onerror = () => document.getElementById('status').textContent = 'Live stream error. Retrying…';
-      es.onmessage = (e) => {
-        try {
-          const obj = JSON.parse(e.data);
-          if (obj.history) {
-            obj.history.forEach(h => { pushPoint(h.received_at || h.ts_ms, h.temperature, h.humidity); addRow(h); });
-            return;
-          }
-          pushPoint(obj.received_at || obj.ts_ms, obj.temperature, obj.humidity);
-          addRow(obj);
-        } catch (err) { console.warn('Bad message', err); }
-      };
+    function subscribeRealtime(){
+      const channel = supabase.channel('readings-inserts')
+        .on('postgres_changes', {event:'INSERT',schema:'public',table:'readings'}, (payload)=>{
+          const r = payload.new; pushPoint(r.received_at||r.ts_ms,r.temperature,r.humidity); addRow(r);
+        }).subscribe();
+      document.getElementById('status').textContent = 'Live (Supabase Realtime)';
     }
-
-    loadInitial();
-    connectSSE();
+    loadInitial(); subscribeRealtime();
   </script>
 </body>
 </html>
