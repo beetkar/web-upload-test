@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>ESP Sensor Dashboard</title>
+  <style>
+    :root { --pad: 16px; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: var(--pad); background:#f7f7fb; }
+    header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; }
+    h2 { margin: 0 0 6px 0; font-weight: 700; }
+    #status { font-size: 14px; opacity: .7; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card { background: white; border-radius: 14px; padding: 14px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+    .card h3 { margin: 0 0 8px 0; font-size: 16px; }
+    canvas { width: 100%; height: 300px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; }
+    th { background: #fafafa; position: sticky; top: 0; z-index: 1; }
+    .table-wrap { max-height: 360px; overflow: auto; }
+    footer { margin-top: 14px; color: #666; font-size: 12px; }
+    code { background: #f0f0f4; padding: 2px 6px; border-radius: 6px; }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+      canvas { height: 240px; }
+    }
+    .notice { background:#fff3cd; border:1px solid #ffe69c; color:#664d03; padding:8px 12px; border-radius:8px; margin-bottom:12px; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <div>
+      <h2>ESP Live Sensor Dashboard</h2>
+      <div id="status">Connecting…</div>
+    </div>
+  </header>
+
+  <div class="notice">
+    Set <code>window.BACKEND_URL</code> below to your backend (e.g., <code>https://your-backend.example.com</code>).
+  </div>
+
+  <script>
+    // *** EDIT THIS ***  (no trailing slash)
+    window.BACKEND_URL = "https://your-backend.example.com";
+  </script>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Temperature (°C)</h3>
+      <canvas id="tempChart"></canvas>
+    </div>
+    <div class="card">
+      <h3>Humidity (%)</h3>
+      <canvas id="humChart"></canvas>
+    </div>
+    <div class="card" style="grid-column: 1 / -1;">
+      <h3>Recent Data</h3>
+      <div class="table-wrap">
+        <table id="dataTable">
+          <thead>
+            <tr><th>Time</th><th>Device</th><th>Temp (°C)</th><th>Humidity (%)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Backend endpoints expected:
+    <ul>
+      <li><code>GET {BACKEND_URL}/events</code> (SSE stream)</li>
+      <li><code>GET {BACKEND_URL}/api/history?limit=200</code> (initial history)</li>
+      <li><code>POST {BACKEND_URL}/data</code> (ESP posts JSON)</li>
+    </ul>
+  </footer>
+
+  <script>
+    const maxPoints = 240;
+    const labels = [];
+    const tData = [];
+    const hData = [];
+
+    const tempCtx = document.getElementById('tempChart').getContext('2d');
+    const humCtx  = document.getElementById('humChart').getContext('2d');
+
+    const tempChart = new Chart(tempCtx, {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Temperature', data: tData, tension: 0.25, pointRadius: 0 }] },
+      options: { animation: false, responsive: true, scales: { y: { beginAtZero: false } } }
+    });
+    const humChart = new Chart(humCtx, {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Humidity', data: hData, tension: 0.25, pointRadius: 0 }] },
+      options: { animation: false, responsive: true, scales: { y: { beginAtZero: true, suggestedMax: 100 } } }
+    });
+
+    const tbody = document.querySelector('#dataTable tbody');
+
+    function addRow(obj) {
+      const tr = document.createElement('tr');
+      const t = new Date(obj.received_at || obj.ts_ms || Date.now()).toLocaleTimeString();
+      tr.innerHTML = `<td>${t}</td><td>${obj.device_id||''}</td><td>${Number(obj.temperature).toFixed(2)}</td><td>${Number(obj.humidity||0).toFixed(2)}</td>`;
+      tbody.prepend(tr);
+      while (tbody.rows.length > 200) tbody.deleteRow(-1);
+    }
+
+    function pushPoint(ts, t, h) {
+      labels.push(new Date(ts).toLocaleTimeString());
+      tData.push(Number(t));
+      hData.push(Number(h));
+      if (labels.length > maxPoints) { labels.shift(); tData.shift(); hData.shift(); }
+      tempChart.update();
+      humChart.update();
+    }
+
+    async function loadInitial() {
+      try {
+        const r = await fetch(`${window.BACKEND_URL}/api/history?limit=200`);
+        const arr = await r.json();
+        arr.forEach(h => {
+          pushPoint(h.received_at || h.ts_ms, h.temperature, h.humidity);
+          addRow(h);
+        });
+      } catch (e) {
+        console.warn("history fetch failed", e);
+      }
+    }
+
+    function connectSSE() {
+      const es = new EventSource(`${window.BACKEND_URL}/events`);
+      es.onopen = () => document.getElementById('status').textContent = 'Live stream connected.';
+      es.onerror = () => document.getElementById('status').textContent = 'Live stream error. Retrying…';
+      es.onmessage = (e) => {
+        try {
+          const obj = JSON.parse(e.data);
+          if (obj.history) {
+            obj.history.forEach(h => { pushPoint(h.received_at || h.ts_ms, h.temperature, h.humidity); addRow(h); });
+            return;
+          }
+          pushPoint(obj.received_at || obj.ts_ms, obj.temperature, obj.humidity);
+          addRow(obj);
+        } catch (err) { console.warn('Bad message', err); }
+      };
+    }
+
+    loadInitial();
+    connectSSE();
+  </script>
+</body>
+</html>
