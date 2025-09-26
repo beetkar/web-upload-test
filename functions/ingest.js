@@ -7,7 +7,6 @@ export default async (req) => {
       return new Response('Method Not Allowed', { status: 405 });
     }
 
-    // very simple auth via header
     const apiKey = req.headers.get('x-api-key');
     if (!apiKey || apiKey !== process.env.INGEST_API_KEY) {
       return new Response('Unauthorized', { status: 401 });
@@ -22,12 +21,12 @@ export default async (req) => {
       ts_ms: Number(payload.ts ?? Date.now()),
       temperature: payload.temperature ?? null,
       humidity: payload.humidity ?? null,
-      received_at: new Date().toISOString()
+      received_at: new Date().toISOString(),
     };
 
     const supabase = createClient(
       process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY // server-side only
+      process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
     const { error } = await supabase.from('readings').insert(row);
